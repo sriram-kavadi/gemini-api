@@ -1,0 +1,10 @@
+{
+  "name": "gemini-web2api",
+  "version": "1.5.0",
+  "description": "Convert Google Gemini Web UI to OpenAI-compatible API on Vercel Edge",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev"
+  }
+}

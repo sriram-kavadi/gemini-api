@@ -1,0 +1,7 @@
+.git
+.github
+tests
+gemini-cookie-sync-extension
+docker-compose.local.yml
+Dockerfile
+.dockerignore

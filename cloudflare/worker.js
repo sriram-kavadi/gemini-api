@@ -639,9 +639,7 @@ function getRequestConfig(env) {
     try {
       config.apiKeys = JSON.parse(env.API_KEYS);
     } catch (e) {
-      // JSON 解析失败时保留默认值
-      // 输出错误日志但不中断程序运行
-      console.error('[ERROR] API_KEYS 解析失败: ' + e.message + '，使用默认值');
+      config.apiKeys = env.API_KEYS.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
     }
   }
 
@@ -2552,9 +2550,11 @@ export default {
     // ================================================================
     // 第三步：速率限制检查
     // ================================================================
-    // 使用 Cloudflare 提供的真实客户端 IP（CF-Connecting-IP 头）
-    // 如果取不到（非 CF 代理），使用默认值 0.0.0.0
-    var clientIP = request.headers.get('CF-Connecting-IP') || '0.0.0.0';
+    // 使用真实客户端 IP（CF-Connecting-IP / x-real-ip / x-forwarded-for）
+    var clientIP = request.headers.get('CF-Connecting-IP') ||
+      request.headers.get('x-real-ip') ||
+      (request.headers.get('x-forwarded-for') ? request.headers.get('x-forwarded-for').split(',')[0].trim() : null) ||
+      '0.0.0.0';
     if (!checkRateLimit(clientIP, config)) {
       log('Rate limit exceeded: ' + clientIP, 'WARN', config);
       return sendJSON({
