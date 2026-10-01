@@ -440,10 +440,15 @@ function getRandomSecChUaPlatform() {
 //   4 = AUTO（自动选择思考深度，由 Gemini 决定）
 
 var MODELS = {
+  'gemini-3.7-flash': {
+    mode: 1,        // FAST - 快速模式
+    think: 4,       // AUTO - 自动选择思考深度
+    desc: 'Latest all-around model (Gemini 3.7 Flash)',
+  },
   'gemini-3.6-flash': {
     mode: 1,        // FAST - 快速模式
     think: 4,       // AUTO - 自动选择思考深度
-    desc: 'Latest all-around model (Gemini 3.6 Flash)',
+    desc: 'All-around model (Gemini 3.6 Flash)',
   },
   'gemini-3.5-flash': {
     mode: 1,        // FAST
@@ -1097,6 +1102,29 @@ async function buildHeaders(config) {
 // ============================================================================
 
 /**
+ * 自动从 Gemini 页面获取最新的 geminiBl 构建标签
+ */
+async function fetchLatestBl() {
+  try {
+    var res = await fetch('https://gemini.google.com/app', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+      },
+    });
+    if (res.ok) {
+      var html = await res.text();
+      var m = html.match(/(boq_assistant-bard-web-server_\d+\.\d+_p\d+)/);
+      if (m && m[1]) {
+        return m[1];
+      }
+    }
+  } catch (e) {
+    // 忽略异常
+  }
+  return null;
+}
+
+/**
  * 非流式调用 Gemini API
  * 
  * 发送请求到 Gemini StreamGenerate 端点并等待完整响应。
@@ -1185,6 +1213,15 @@ async function geminiStreamGenerate(prompt, modelId, thinkMode, config) {
       // 405 Method Not Allowed: BL 版本过期
       // Gemini 更新了前端，需要同步更新 geminiBl 配置
       if (response.status === 405) {
+        log('收到 405 错误，尝试自动获取最新 geminiBl...', 'WARN', config);
+        var newBl = await fetchLatestBl();
+        if (newBl && newBl !== config.geminiBl) {
+          log('geminiBl 自动更新: ' + config.geminiBl + ' -> ' + newBl, 'INFO', config);
+          config.geminiBl = newBl;
+          DEFAULT_CONFIG.geminiBl = newBl;
+          url = buildUrl(config);
+          continue; // 重试
+        }
         throw new Error('HTTP 405: Method Not Allowed - 可能 BL 版本过期，请更新 geminiBl');
       }
 
@@ -2121,6 +2158,14 @@ async function handleChatCompletions(request, body, config) {
 
             // 检查响应状态码
             if (!response.ok) {
+              if (response.status === 405) {
+                var newBlStream = await fetchLatestBl();
+                if (newBlStream) {
+                  DEFAULT_CONFIG.geminiBl = newBlStream;
+                  config.geminiBl = newBlStream;
+                }
+                throw new Error('HTTP 405: Method Not Allowed - BL 版本过期，请在 Vercel 环境变量中设置 GEMINI_BL 或重新发起请求');
+              }
               var errorText = '';
               try {
                 errorText = await response.text();
