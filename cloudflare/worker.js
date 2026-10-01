@@ -583,12 +583,25 @@ function getRequestConfig(env) {
   // 
   // 如果分割后只有 1 个元素，效果等同于单个 Cookie
 
-  var cookieStrings = (env.COOKIE_STRING || '').split('|').filter(function (c) {
-    return c.trim();  // 过滤掉空字符串
-  });
-  var sapisids = (env.SAPISID || '').split('|').filter(function (s) {
-    return s.trim();  // 过滤掉空字符串
-  });
+  // 环境变量清洗：防止复制时带入的换行符、首尾引号导致 "Invalid header value" 错误
+  var rawCookieEnv = (env.COOKIE_STRING || '')
+    .replace(/^["']|["']$/g, '')        // 去除包裹的引号
+    .replace(/[\r\n]+/g, ' ')           // 换行替换为空格
+    .replace(/\s*;\s*/g, '; ')          // 格式化分号
+    .trim();
+
+  var rawSapisidEnv = (env.SAPISID || '')
+    .replace(/^["']|["']$/g, '')
+    .replace(/[\r\n\s]+/g, '')          // SAPISID 内部不应包含任何换行或空格
+    .trim();
+
+  var cookieStrings = rawCookieEnv.split('|').map(function (c) {
+    return c.trim();
+  }).filter(Boolean);
+
+  var sapisids = rawSapisidEnv.split('|').map(function (s) {
+    return s.trim();
+  }).filter(Boolean);
 
   // 情况 1：有多个 Cookie 可供选择
   if (cookieStrings.length > 0) {
@@ -1075,26 +1088,32 @@ async function buildHeaders(config) {
   }
 
   // 第四步：多账户支持
-  // 如果使用了非默认账户（authUser 不为空），添加认证用户头
   if (prefix) {
     headers['X-Goog-AuthUser'] = String(config.authUser);
   }
 
   // 第五步：Cookie 认证（如果有）
-  // 提供有效的 Cookie 可以大幅提升请求稳定性
-  // 减少 429（限流）和 403（禁止访问）错误的概率
   if (config.cookieString) {
-    headers['Cookie'] = config.cookieString;
+    headers['Cookie'] = config.cookieString.replace(/[\r\n]+/g, ' ').replace(/[^\x20-\x7E]/g, '').trim();
   }
 
   // 第六步：SAPISID 认证哈希（如果有）
-  // 生成基于时间的 SHA-1 哈希，证明请求来自有效的 Google 会话
-  // 格式: SAPISIDHASH {timestamp}_{sha1_hex_hash}
   if (config.sapisid) {
-    headers['Authorization'] = await makeSapisidHash(config.sapisid);
+    var cleanSapisid = String(config.sapisid).replace(/[\r\n\s]+/g, '').replace(/[^\x20-\x7E]/g, '').trim();
+    if (cleanSapisid) {
+      headers['Authorization'] = await makeSapisidHash(cleanSapisid);
+    }
   }
 
-  return headers;
+  // 严格清洗所有请求头，确保不包含任何 \r, \n 或控制字符，防止 Vercel Edge 报 "Invalid header value"
+  var cleanHeaders = {};
+  for (var k in headers) {
+    if (headers[k] !== undefined && headers[k] !== null) {
+      cleanHeaders[k] = String(headers[k]).replace(/[\r\n]+/g, ' ').replace(/[^\x20-\x7E]/g, '').trim();
+    }
+  }
+
+  return cleanHeaders;
 }
 
 // ============================================================================
@@ -2641,7 +2660,7 @@ export default {
       // ---- OpenAI 格式模型列表 ----
       // 返回所有可用模型的信息
       // 客户端（NextChat、Cherry Studio 等）会调用此端点获取模型列表
-      if (path === '/v1/models') {
+      if (path === '/v1/models' || path === '/models') {
         var modelList = [];
         var modelKeys = Object.keys(MODELS);
         for (var i = 0; i < modelKeys.length; i++) {
